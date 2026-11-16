@@ -89,10 +89,80 @@ def init_db() -> None:
             )
         """)
 
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS room_counters (
+                room_id TEXT PRIMARY KEY,
+                value INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                sender_id TEXT NOT NULL,
+                sender_name TEXT,
+                text TEXT,
+                accepted_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                UNIQUE(room_id, seq)
+            )
+        """)
+
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_room_seq
+            ON messages(room_id, seq)
+        """)
+
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_expiry
+            ON messages(expires_at)
+        """)
+
 def next_seq(db: sqlite3.Connection) -> int:
     db.execute("UPDATE counters SET value = value + 1 WHERE name = 'seq'")
     return db.execute("SELECT value FROM counters WHERE name = 'seq'").fetchone()[0]
 
+def next_room_seq(db: sqlite3.Connection, room_id: str) -> int:
+    db.execute(
+        "INSERT OR IGNORE INTO room_counters(room_id, value) VALUES (?, 0)",
+        (room_id,)
+    )
+
+    db.execute(
+        "UPDATE room_counters SET value = value + 1 WHERE room_id = ?",
+        (room_id,)
+    )
+
+    return db.execute(
+        "SELECT value FROM room_counters WHERE room_id = ?",
+        (room_id,)
+    ).fetchone()[0]
+
+
+def expire_messages(db: sqlite3.Connection, now: int) -> None:
+    db.execute("""
+        UPDATE messages
+        SET text = NULL, sender_name = NULL
+        WHERE expires_at <= ? AND text IS NOT NULL
+    """, (now,))
+
+
+def row_to_message(row: sqlite3.Row) -> dict[str, Any]:
+    expired = row["text"] is None
+
+    return {
+        "id": row["id"],
+        "room_id": row["room_id"],
+        "seq": row["seq"],
+        "sender_id": row["sender_id"],
+        "sender_name": row["sender_name"],
+        "text": row["text"],
+        "accepted_at": row["accepted_at"],
+        "expires_at": row["expires_at"],
+        "expired": expired
+    }
 
 def row_to_record(row: sqlite3.Row) -> dict[str, Any]:
     return {
@@ -123,6 +193,12 @@ class JoinRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=64)
     display_name: str = Field(min_length=1, max_length=32)
     room_id: str = Field(min_length=1, max_length=64)
+
+class MessageRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    room_id: str = Field(min_length=1, max_length=64)
+    sender_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=2000)
 
 # ---------- endpoints ----------
 
@@ -167,6 +243,128 @@ def join(req: JoinRequest):
         "device_id": device_id,
         "display_name": display_name,
         "server_time": server_time
+    }
+
+@app.post("/messages")
+def send_message(req: MessageRequest):
+    message_id = req.id.strip()
+    room_id = req.room_id.strip()
+    sender_id = req.sender_id.strip()
+    message_text = req.text.strip()
+
+    if not message_id or not room_id or not sender_id or not message_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Message ID, room ID, sender ID and text are required"
+        )
+
+    now = int(time.time() * 1000)
+
+    with db_conn() as db:
+        # Clear expired message content.
+        expire_messages(db, now)
+
+        # Verify that the sender has joined this room.
+        participant = db.execute("""
+            SELECT display_name
+            FROM participants
+            WHERE room_id = ? AND device_id = ?
+        """, (room_id, sender_id)).fetchone()
+
+        if participant is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Sender has not joined this room"
+            )
+
+        # Check whether this message was already accepted.
+        existing = db.execute(
+            "SELECT * FROM messages WHERE id = ?",
+            (message_id,)
+        ).fetchone()
+
+        if existing is not None:
+            if (
+                existing["room_id"] != room_id
+                or existing["sender_id"] != sender_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Message ID already belongs to another message"
+                )
+
+            return row_to_message(existing)
+
+        accepted_at = now
+        expires_at = accepted_at + 30_000
+        seq = next_room_seq(db, room_id)
+
+        db.execute("""
+            INSERT INTO messages (
+                id, room_id, seq, sender_id,
+                sender_name, text, accepted_at, expires_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            message_id,
+            room_id,
+            seq,
+            sender_id,
+            participant["display_name"],
+            message_text,
+            accepted_at,
+            expires_at
+        ))
+
+        row = db.execute(
+            "SELECT * FROM messages WHERE id = ?",
+            (message_id,)
+        ).fetchone()
+
+        return row_to_message(row)
+
+
+@app.get("/messages")
+def get_messages(room_id: str, since: int = 0):
+    room_id = room_id.strip()
+
+    if not room_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Room ID is required"
+        )
+
+    if since < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cursor cannot be negative"
+        )
+
+    now = int(time.time() * 1000)
+
+    with db_conn() as db:
+        # Remove expired message content before returning results.
+        expire_messages(db, now)
+
+        rows = db.execute("""
+            SELECT *
+            FROM messages
+            WHERE room_id = ? AND seq > ?
+            ORDER BY seq
+            LIMIT 101
+        """, (room_id, since)).fetchall()
+
+    has_more = len(rows) > 100
+    rows = rows[:100]
+
+    messages = [row_to_message(row) for row in rows]
+
+    cursor = rows[-1]["seq"] if rows else since
+
+    return {
+        "messages": messages,
+        "cursor": cursor,
+        "has_more": has_more
     }
 
 @app.get("/records/{record_id}")
