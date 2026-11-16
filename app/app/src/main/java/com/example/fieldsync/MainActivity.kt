@@ -1,7 +1,8 @@
 
 package com.example.fieldsync
 
-
+import com.example.fieldsync.data.SendMessageRequestDto
+import kotlinx.coroutines.delay
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
@@ -59,6 +60,7 @@ data class ChatMessage(
     val sender: String,
     val text: String,
     val timestamp: Long,
+    val expiresAt: Long,
     val isMine: Boolean
 )
 
@@ -77,9 +79,90 @@ fun VanishApp() {
 
     var isJoining by remember { mutableStateOf(false) }
     var joinError by remember { mutableStateOf("") }
+    var connectionError by remember { mutableStateOf("") }
+
+    // Keep the API connection and device identity after joining.
+    var activeApi by remember { mutableStateOf<SyncApi?>(null) }
+    var activeDeviceId by remember { mutableStateOf("") }
+
+    // Sequence number of the last message received from the server.
+    var messageCursor by remember { mutableStateOf(0) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Poll the relay while the user is in the chat screen.
+    LaunchedEffect(currentScreen, activeApi, activeDeviceId) {
+        val api = activeApi
+
+        if (
+            currentScreen == "chat" &&
+            api != null &&
+            activeDeviceId.isNotBlank()
+        ) {
+            while (true) {
+                try {
+                    var hasMore = true
+
+                    // Continue fetching if the server has more than one page.
+                    while (hasMore) {
+                        val response = api.getMessages(
+                            roomId = "class",
+                            since = messageCursor
+                        )
+
+                        val now = System.currentTimeMillis()
+
+                        val receivedMessages = response.messages.mapNotNull { item ->
+                            val messageText = item.text
+
+                            // Expired messages are tombstones.
+                            // They still advance the cursor, but are not displayed.
+                            if (
+                                item.expired ||
+                                messageText.isNullOrBlank() ||
+                                item.expiresAt <= now
+                            ) {
+                                null
+                            } else {
+                                ChatMessage(
+                                    id = item.id,
+                                    sender = item.senderName ?: "Unknown",
+                                    text = messageText,
+                                    timestamp = item.acceptedAt,
+                                    expiresAt = item.expiresAt,
+                                    isMine = item.senderId == activeDeviceId
+                                )
+                            }
+                        }
+
+                        // Avoid adding a message twice if POST and GET overlap.
+                        messages = (messages + receivedMessages)
+                            .distinctBy { it.id }
+
+                        // Advance the cursor even when the page contains
+                        // expired messages that are not displayed.
+                        messageCursor = response.cursor
+                        hasMore = response.hasMore
+                    }
+
+                    // Remove messages as soon as their expiry time passes.
+                    val now = System.currentTimeMillis()
+                    messages = messages.filter {
+                        it.expiresAt > now
+                    }
+
+                    connectionError = ""
+
+                } catch (e: Exception) {
+                    connectionError = e.localizedMessage
+                        ?: "Unable to receive messages from the server."
+                }
+
+                delay(1000)
+            }
+        }
+    }
 
     when (currentScreen) {
         "join" -> {
@@ -97,7 +180,6 @@ fun VanishApp() {
                             joinError = ""
 
                             try {
-                                // Reuse the device ID already used by SyncRepository.
                                 val prefs = context.getSharedPreferences(
                                     "sync",
                                     Context.MODE_PRIVATE
@@ -133,9 +215,15 @@ fun VanishApp() {
                                 )
 
                                 if (response.joined) {
+                                    activeApi = api
+                                    activeDeviceId = deviceId
+                                    messageCursor = 0
+                                    messages = emptyList()
+                                    connectionError = ""
                                     currentScreen = "chat"
                                 } else {
-                                    joinError = "The server did not confirm your join."
+                                    joinError =
+                                        "The server did not confirm your join."
                                 }
 
                             } catch (e: Exception) {
@@ -154,17 +242,59 @@ fun VanishApp() {
             ChatScreen(
                 displayName = displayName,
                 messages = messages,
+                connectionError = connectionError,
                 onSendMessage = { text ->
-                    messages = messages + ChatMessage(
-                        id = UUID.randomUUID().toString(),
-                        sender = displayName,
-                        text = text,
-                        timestamp = System.currentTimeMillis(),
-                        isMine = true
-                    )
+                    val api = activeApi
+                    val deviceId = activeDeviceId
+
+                    if (api != null && deviceId.isNotBlank()) {
+                        scope.launch {
+                            try {
+                                val response = api.sendMessage(
+                                    SendMessageRequestDto(
+                                        id = UUID.randomUUID().toString(),
+                                        roomId = "class",
+                                        senderId = deviceId,
+                                        text = text
+                                    )
+                                )
+
+                                // The server's response is authoritative.
+                                if (
+                                    !response.expired &&
+                                    response.text != null &&
+                                    response.expiresAt > System.currentTimeMillis()
+                                ) {
+                                    val sentMessage = ChatMessage(
+                                        id = response.id,
+                                        sender = response.senderName ?: displayName,
+                                        text = response.text,
+                                        timestamp = response.acceptedAt,
+                                        expiresAt = response.expiresAt,
+                                        isMine = true
+                                    )
+
+                                    messages = (messages + sentMessage)
+                                        .distinctBy { it.id }
+                                }
+
+                                connectionError = ""
+
+                            } catch (e: Exception) {
+                                connectionError = e.localizedMessage
+                                    ?: "Message could not be sent."
+                            }
+                        }
+                    } else {
+                        connectionError = "Not connected to the relay server."
+                    }
                 },
                 onLeave = {
                     messages = emptyList()
+                    activeApi = null
+                    activeDeviceId = ""
+                    messageCursor = 0
+                    connectionError = ""
                     currentScreen = "join"
                 }
             )
@@ -393,9 +523,10 @@ fun JoinScreen(
 fun ChatScreen(
     displayName: String,
     messages: List<ChatMessage>,
+    connectionError: String,
     onSendMessage: (String) -> Unit,
     onLeave: () -> Unit
-) {
+){
     var messageText by remember { mutableStateOf("") }
 
     Surface(
@@ -458,20 +589,31 @@ fun ChatScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-
-                // Temporary development indicator
+                // Relay connection status
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = Color(0xFFE8EDFF),
+                    color = if (connectionError.isBlank()) {
+                        Color(0xFFE8F5E9)
+                    } else {
+                        Color(0xFFFFEBEE)
+                    },
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text(
-                        text = "UI preview — relay not connected yet",
+                        text = if (connectionError.isBlank()) {
+                            "Connected to relay server"
+                        } else {
+                            connectionError
+                        },
                         modifier = Modifier.padding(12.dp),
                         fontSize = 12.sp,
-                        color = PrimaryBlue
+                        color = if (connectionError.isBlank()) {
+                            Color(0xFF287A3D)
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
                     )
                 }
 

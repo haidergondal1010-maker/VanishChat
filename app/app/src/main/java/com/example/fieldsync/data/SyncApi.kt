@@ -69,6 +69,52 @@ data class JoinResponseDto(
     @SerializedName("server_time")
     val serverTime: Long
 )
+
+data class SendMessageRequestDto(
+    val id: String,
+
+    @SerializedName("room_id")
+    val roomId: String,
+
+    @SerializedName("sender_id")
+    val senderId: String,
+
+    val text: String
+)
+
+data class MessageDto(
+    val id: String,
+
+    @SerializedName("room_id")
+    val roomId: String,
+
+    val seq: Int,
+
+    @SerializedName("sender_id")
+    val senderId: String,
+
+    @SerializedName("sender_name")
+    val senderName: String?,
+
+    val text: String?,
+
+    @SerializedName("accepted_at")
+    val acceptedAt: Long,
+
+    @SerializedName("expires_at")
+    val expiresAt: Long,
+
+    val expired: Boolean
+)
+
+data class MessagesResponseDto(
+    val messages: List<MessageDto>,
+    val cursor: Int,
+
+    @SerializedName("has_more")
+    val hasMore: Boolean
+)
+
 interface SyncApi {
     @POST("sync/push")
     suspend fun push(@Body body: PushRequest): PushResponse
@@ -77,7 +123,11 @@ interface SyncApi {
     suspend fun pull(@Query("since") since: Int): PullResponse
 
     @POST("join")
-    suspend fun join(
-        @Body body: JoinRequestDto
-    ): JoinResponseDto
+    suspend fun join(@Body body: JoinRequestDto): JoinResponseDto
+
+    @POST("messages")
+    suspend fun sendMessage(@Body body: SendMessageRequestDto): MessageDto
+
+    @GET("messages")
+    suspend fun getMessages(@Query("room_id") roomId: String, @Query("since") since: Int): MessagesResponseDto
 }
