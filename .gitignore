@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+server.db
+*.db
+.gradle/
+.idea/
+build/
+local.properties
+*.iml
+.DS_Store
+
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local database
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
