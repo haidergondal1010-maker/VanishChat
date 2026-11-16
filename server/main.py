@@ -25,7 +25,8 @@ STUDENT TODO (graded in the viva):
   3. Deletes: add tombstones so deletions sync to other devices.
   4. Document your choices in API_SPEC.md before coding.
 """
-
+import time
+from pydantic import Field
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -62,20 +63,31 @@ def init_db() -> None:
         db.execute("""
             CREATE TABLE IF NOT EXISTS records (
                 id      TEXT PRIMARY KEY,
-                data    TEXT NOT NULL,      -- JSON blob from the client
+                data    TEXT NOT NULL,
                 version INTEGER NOT NULL,
-                seq     INTEGER NOT NULL    -- global change counter, used as pull cursor
+                seq     INTEGER NOT NULL
             )
         """)
         db.execute("CREATE INDEX IF NOT EXISTS idx_records_seq ON records(seq)")
+
         db.execute("""
             CREATE TABLE IF NOT EXISTS counters (
                 name  TEXT PRIMARY KEY,
                 value INTEGER NOT NULL
             )
         """)
+
         db.execute("INSERT OR IGNORE INTO counters(name, value) VALUES ('seq', 0)")
 
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS participants (
+                room_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                joined_at INTEGER NOT NULL,
+                PRIMARY KEY (room_id, device_id)
+            )
+        """)
 
 def next_seq(db: sqlite3.Connection) -> int:
     db.execute("UPDATE counters SET value = value + 1 WHERE name = 'seq'")
@@ -107,6 +119,10 @@ class PushRequest(BaseModel):
     device_id: str
     changes: list[Change]
 
+class JoinRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=32)
+    room_id: str = Field(min_length=1, max_length=64)
 
 # ---------- endpoints ----------
 
@@ -114,6 +130,44 @@ class PushRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
+@app.post("/join")
+def join(req: JoinRequest):
+    device_id = req.device_id.strip()
+    display_name = req.display_name.strip()
+    room_id = req.room_id.strip()
+
+    if not device_id or not display_name or not room_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Device ID, display name and room ID are required"
+        )
+
+    if len(display_name) > 32:
+        raise HTTPException(
+            status_code=400,
+            detail="Display name cannot exceed 32 characters"
+        )
+
+    server_time = int(time.time() * 1000)
+
+    with db_conn() as db:
+        db.execute("""
+            INSERT INTO participants (
+                room_id, device_id, display_name, joined_at
+            )
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(room_id, device_id)
+            DO UPDATE SET
+                display_name = excluded.display_name
+        """, (room_id, device_id, display_name, server_time))
+
+    return {
+        "joined": True,
+        "room_id": room_id,
+        "device_id": device_id,
+        "display_name": display_name,
+        "server_time": server_time
+    }
 
 @app.get("/records/{record_id}")
 def get_record(record_id: str):

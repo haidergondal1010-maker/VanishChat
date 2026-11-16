@@ -43,10 +43,41 @@ data class PullResponse(
     @SerializedName("has_more") val hasMore: Boolean
 )
 
+data class JoinRequestDto(
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("display_name")
+    val displayName: String,
+
+    @SerializedName("room_id")
+    val roomId: String
+)
+
+data class JoinResponseDto(
+    val joined: Boolean,
+
+    @SerializedName("room_id")
+    val roomId: String,
+
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("display_name")
+    val displayName: String,
+
+    @SerializedName("server_time")
+    val serverTime: Long
+)
 interface SyncApi {
     @POST("sync/push")
     suspend fun push(@Body body: PushRequest): PushResponse
 
     @GET("sync/pull")
     suspend fun pull(@Query("since") since: Int): PullResponse
+
+    @POST("join")
+    suspend fun join(
+        @Body body: JoinRequestDto
+    ): JoinResponseDto
 }

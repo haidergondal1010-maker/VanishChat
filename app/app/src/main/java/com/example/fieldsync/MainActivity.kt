@@ -1,6 +1,15 @@
 
 package com.example.fieldsync
 
+
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.util.UUID
+import com.example.fieldsync.data.SyncApi
+import com.example.fieldsync.data.JoinRequestDto
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -59,12 +68,18 @@ fun VanishApp() {
 
     var displayName by remember { mutableStateOf("") }
     var serverUrl by remember {
-        mutableStateOf("http://192.168.1.100:8000/")
+        mutableStateOf("http://192.168.1.8:8000/")
     }
 
     var messages by remember {
         mutableStateOf(listOf<ChatMessage>())
     }
+
+    var isJoining by remember { mutableStateOf(false) }
+    var joinError by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     when (currentScreen) {
         "join" -> {
@@ -73,8 +88,64 @@ fun VanishApp() {
                 onDisplayNameChange = { displayName = it },
                 serverUrl = serverUrl,
                 onServerUrlChange = { serverUrl = it },
+                isJoining = isJoining,
+                serverError = joinError,
                 onJoin = {
-                    currentScreen = "chat"
+                    if (!isJoining) {
+                        scope.launch {
+                            isJoining = true
+                            joinError = ""
+
+                            try {
+                                // Reuse the device ID already used by SyncRepository.
+                                val prefs = context.getSharedPreferences(
+                                    "sync",
+                                    Context.MODE_PRIVATE
+                                )
+
+                                val deviceId = prefs.getString(
+                                    "device_id",
+                                    null
+                                ) ?: UUID.randomUUID().toString().also {
+                                    prefs.edit()
+                                        .putString("device_id", it)
+                                        .apply()
+                                }
+
+                                val baseUrl = serverUrl.trim().let {
+                                    if (it.endsWith("/")) it else "$it/"
+                                }
+
+                                val api = Retrofit.Builder()
+                                    .baseUrl(baseUrl)
+                                    .addConverterFactory(
+                                        GsonConverterFactory.create()
+                                    )
+                                    .build()
+                                    .create(SyncApi::class.java)
+
+                                val response = api.join(
+                                    JoinRequestDto(
+                                        deviceId = deviceId,
+                                        displayName = displayName.trim(),
+                                        roomId = "class"
+                                    )
+                                )
+
+                                if (response.joined) {
+                                    currentScreen = "chat"
+                                } else {
+                                    joinError = "The server did not confirm your join."
+                                }
+
+                            } catch (e: Exception) {
+                                joinError = e.localizedMessage
+                                    ?: "Unable to connect to the relay server."
+                            } finally {
+                                isJoining = false
+                            }
+                        }
+                    }
                 }
             )
         }
@@ -85,7 +156,7 @@ fun VanishApp() {
                 messages = messages,
                 onSendMessage = { text ->
                     messages = messages + ChatMessage(
-                        id = java.util.UUID.randomUUID().toString(),
+                        id = UUID.randomUUID().toString(),
                         sender = displayName,
                         text = text,
                         timestamp = System.currentTimeMillis(),
@@ -111,8 +182,10 @@ fun JoinScreen(
     onDisplayNameChange: (String) -> Unit,
     serverUrl: String,
     onServerUrlChange: (String) -> Unit,
+    isJoining: Boolean,
+    serverError: String,
     onJoin: () -> Unit
-) {
+)  {
     var errorMessage by remember { mutableStateOf("") }
 
     Surface(
@@ -242,11 +315,11 @@ fun JoinScreen(
                     color = SecondaryText
                 )
 
-                if (errorMessage.isNotEmpty()) {
+                if (errorMessage.isNotEmpty() || serverError.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = errorMessage,
+                        text = errorMessage.ifBlank { serverError },
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 13.sp
                     )
@@ -262,13 +335,11 @@ fun JoinScreen(
 
                         when {
                             displayName.isBlank() -> {
-                                errorMessage =
-                                    "Please enter your display name."
+                                errorMessage = "Please enter your display name."
                             }
 
                             !validUrl -> {
-                                errorMessage =
-                                    "Enter a valid HTTP or HTTPS server URL."
+                                errorMessage = "Enter a valid HTTP or HTTPS server URL."
                             }
 
                             else -> {
@@ -277,6 +348,7 @@ fun JoinScreen(
                             }
                         }
                     },
+                    enabled = !isJoining,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp),
@@ -285,11 +357,19 @@ fun JoinScreen(
                         containerColor = PrimaryBlue
                     )
                 ) {
-                    Text(
-                        text = "Join class",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (isJoining) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Join class",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
 
@@ -337,7 +417,7 @@ fun ChatScreen(
                             )
 
                             Text(
-                                text = "Shared class chat",
+                                text = "Signed in as $displayName",
                                 fontSize = 12.sp,
                                 color = SecondaryText
                             )
@@ -634,7 +714,8 @@ fun MessageInput(
             ) {
                 Text(
                     text = "➤",
-                    fontSize = 21.sp
+                    fontSize = 20.sp,
+                    color = Color.White
                 )
             }
         }
