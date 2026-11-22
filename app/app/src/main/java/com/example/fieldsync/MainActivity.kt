@@ -1,26 +1,54 @@
-
 package com.example.fieldsync
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fieldsync.data.ChatRepository
@@ -35,78 +63,219 @@ import kotlin.math.ceil
 // THEME COLORS
 // ---------------------------------------------------------
 
+private val BrandStart = Color(0xFF7C5CFF)
+private val BrandMid = Color(0xFF5B8CFF)
+private val BrandEnd = Color(0xFF3BA7FF)
+private val AuroraPink = Color(0xFFFF5CAA)
+
+private val BrandBrush = Brush.linearGradient(listOf(BrandStart, BrandEnd))
+
+private val StatusGreen = Color(0xFF34D399)
+private val StatusAmber = Color(0xFFFBBF24)
+private val StatusRed = Color(0xFFF87171)
+
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF3157D5),
+    primary = Color(0xFF5B4BDB),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE8EDFF),
-    onPrimaryContainer = Color(0xFF172D78),
+    primaryContainer = Color(0xFFE6E2FF),
+    onPrimaryContainer = Color(0xFF2A1F7A),
 
-    secondary = Color(0xFF287A3D),
+    secondary = Color(0xFF1E8E5A),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE8F5E9),
-    onSecondaryContainer = Color(0xFF205C30),
+    secondaryContainer = Color(0xFFDDF7EA),
+    onSecondaryContainer = Color(0xFF0F5C37),
 
-    tertiary = Color(0xFF91611D),
+    tertiary = Color(0xFFB36A00),
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFF3DF),
-    onTertiaryContainer = Color(0xFF704713),
+    tertiaryContainer = Color(0xFFFFEFD0),
+    onTertiaryContainer = Color(0xFF6B4000),
 
-    error = Color(0xFFB3261E),
-    errorContainer = Color(0xFFFFEBEE),
+    error = Color(0xFFD13A3A),
+    errorContainer = Color(0xFFFFE3E1),
     onErrorContainer = Color(0xFF8C1D18),
 
-    background = Color(0xFFF7F8FA),
-    onBackground = Color(0xFF172033),
+    background = Color(0xFFEEF1FF),
+    onBackground = Color(0xFF161B33),
 
     surface = Color.White,
-    onSurface = Color(0xFF172033),
+    onSurface = Color(0xFF161B33),
 
-    surfaceVariant = Color(0xFFEEF1F6),
-    onSurfaceVariant = Color(0xFF778197),
+    surfaceVariant = Color(0xFFE8EBF8),
+    onSurfaceVariant = Color(0xFF5A6482),
 
-    outline = Color(0xFFD7DDE7)
+    outline = Color(0xFFCBD2E8)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF91A8FF),
-    onPrimary = Color(0xFF101B3C),
-    primaryContainer = Color(0xFF293D78),
-    onPrimaryContainer = Color(0xFFDCE4FF),
+    primary = Color(0xFFB4A9FF),
+    onPrimary = Color(0xFF1B1257),
+    primaryContainer = Color(0xFF3A2FA0),
+    onPrimaryContainer = Color(0xFFE5E0FF),
 
-    secondary = Color(0xFF8DD69C),
-    onSecondary = Color(0xFF103A1B),
-    secondaryContainer = Color(0xFF205C30),
-    onSecondaryContainer = Color(0xFFB8F0C2),
+    secondary = Color(0xFF7BE0AE),
+    onSecondary = Color(0xFF05321C),
+    secondaryContainer = Color(0xFF14573A),
+    onSecondaryContainer = Color(0xFFBFF5D8),
 
     tertiary = Color(0xFFFFCC80),
     onTertiary = Color(0xFF482D08),
-    tertiaryContainer = Color(0xFF704713),
+    tertiaryContainer = Color(0xFF6B4313),
     onTertiaryContainer = Color(0xFFFFE0AE),
 
     error = Color(0xFFFFB4AB),
     errorContainer = Color(0xFF601410),
     onErrorContainer = Color(0xFFFFDAD6),
 
-    background = Color(0xFF10131A),
-    onBackground = Color(0xFFE8ECF5),
+    background = Color(0xFF0B0E1A),
+    onBackground = Color(0xFFE9ECF8),
 
-    surface = Color(0xFF191E29),
-    onSurface = Color(0xFFE8ECF5),
+    surface = Color(0xFF151A2B),
+    onSurface = Color(0xFFE9ECF8),
 
-    surfaceVariant = Color(0xFF252C3A),
-    onSurfaceVariant = Color(0xFFAAB4C6),
+    surfaceVariant = Color(0xFF232A40),
+    onSurfaceVariant = Color(0xFFB3BDD6),
 
-    outline = Color(0xFF414B5D)
+    outline = Color(0xFF3F4863)
 )
+
+private val LocalIsDark = staticCompositionLocalOf { false }
 
 @Composable
 private fun VanishTheme(
     darkTheme: Boolean,
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+    CompositionLocalProvider(LocalIsDark provides darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            content = content
+        )
+    }
+}
+
+// ---------------------------------------------------------
+// GLASSMORPHISM HELPERS
+// ---------------------------------------------------------
+
+/**
+ * Frosted-glass surface: translucent gradient fill plus a bright,
+ * fading edge highlight. Sits on top of [AuroraBackground] so the
+ * colour orbs show through.
+ */
+@Composable
+private fun Modifier.glass(
+    shape: Shape = RoundedCornerShape(20.dp),
+    strong: Boolean = false,
+    highlighted: Boolean = false
+): Modifier {
+    val dark = LocalIsDark.current
+    val primary = MaterialTheme.colorScheme.primary
+
+    val fill = if (dark) {
+        Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = if (strong) 0.16f else 0.10f),
+                Color.White.copy(alpha = if (strong) 0.07f else 0.04f)
+            )
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = if (strong) 0.74f else 0.55f),
+                Color.White.copy(alpha = if (strong) 0.46f else 0.32f)
+            )
+        )
+    }
+
+    val border = when {
+        highlighted -> Brush.linearGradient(
+            listOf(primary, primary.copy(alpha = 0.45f))
+        )
+
+        dark -> Brush.linearGradient(
+            listOf(Color.White.copy(alpha = 0.36f), Color.White.copy(alpha = 0.05f))
+        )
+
+        else -> Brush.linearGradient(
+            listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.35f))
+        )
+    }
+
+    return this
+        .clip(shape)
+        .background(fill, shape)
+        .border(if (highlighted) 1.5.dp else 1.dp, border, shape)
+}
+
+private fun DrawScope.drawOrb(center: Offset, radius: Float, color: Color) {
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(color, Color.Transparent),
+            center = center,
+            radius = radius
+        ),
+        radius = radius,
+        center = center
+    )
+}
+
+/** Slowly drifting colour orbs on a deep gradient – the "backdrop" for the glass. */
+@Composable
+private fun AuroraBackground(content: @Composable BoxScope.() -> Unit) {
+    val dark = LocalIsDark.current
+
+    val transition = rememberInfiniteTransition(label = "aurora")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 16_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "aurora_phase"
+    )
+
+    val baseColors = if (dark) {
+        listOf(Color(0xFF0B0E1A), Color(0xFF140F33))
+    } else {
+        listOf(Color(0xFFEAF0FF), Color(0xFFF6ECFF))
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(baseColors))
+            .drawBehind {
+                val a = if (dark) 0.55f else 0.45f
+                val w = size.width
+                val h = size.height
+
+                drawOrb(
+                    Offset(w * (0.10f + 0.35f * phase), h * 0.10f),
+                    w * 0.85f,
+                    BrandStart.copy(alpha = a)
+                )
+                drawOrb(
+                    Offset(w * (0.95f - 0.35f * phase), h * 0.48f),
+                    w * 0.75f,
+                    BrandEnd.copy(alpha = a * 0.85f)
+                )
+                drawOrb(
+                    Offset(w * (0.15f + 0.45f * phase), h * 0.95f),
+                    w * 0.85f,
+                    AuroraPink.copy(alpha = a * 0.65f)
+                )
+            },
         content = content
+    )
+}
+
+@Composable
+private fun StatusDot(color: Color, size: Dp = 8.dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(color, CircleShape)
     )
 }
 
@@ -117,6 +286,9 @@ private fun VanishTheme(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Let the aurora background run behind the system bars.
+        enableEdgeToEdge()
 
         setContent {
             VanishApp()
@@ -328,7 +500,8 @@ fun VanishApp() {
 @Composable
 fun ThemeModeSelector(
     themeMode: String,
-    onThemeModeChange: (String) -> Unit
+    onThemeModeChange: (String) -> Unit,
+    compact: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -338,12 +511,28 @@ fun ThemeModeSelector(
         else -> "System"
     }
 
+    val icon = when (themeMode) {
+        "light" -> "☀"
+        "dark" -> "☾"
+        else -> "◐"
+    }
+
     Box {
-        TextButton(onClick = { expanded = true }) {
+        Box(
+            modifier = Modifier
+                .glass(CircleShape)
+                .clickable { expanded = true }
+                .padding(
+                    horizontal = if (compact) 12.dp else 16.dp,
+                    vertical = 8.dp
+                ),
+            contentAlignment = Alignment.Center
+        ) {
             Text(
-                text = "Theme: $currentLabel",
+                text = if (compact) icon else "$icon  $currentLabel",
                 color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                fontSize = if (compact) 16.sp else 14.sp
             )
         }
 
@@ -352,7 +541,9 @@ fun ThemeModeSelector(
             onDismissRequest = { expanded = false }
         ) {
             DropdownMenuItem(
-                text = { Text("System default") },
+                text = {
+                    Text(if (themeMode == "system") "✓  System default" else "System default")
+                },
                 onClick = {
                     onThemeModeChange("system")
                     expanded = false
@@ -360,7 +551,9 @@ fun ThemeModeSelector(
             )
 
             DropdownMenuItem(
-                text = { Text("Light mode") },
+                text = {
+                    Text(if (themeMode == "light") "✓  Light mode" else "Light mode")
+                },
                 onClick = {
                     onThemeModeChange("light")
                     expanded = false
@@ -368,13 +561,82 @@ fun ThemeModeSelector(
             )
 
             DropdownMenuItem(
-                text = { Text("Dark mode") },
+                text = {
+                    Text(if (themeMode == "dark") "✓  Dark mode" else "Dark mode")
+                },
                 onClick = {
                     onThemeModeChange("dark")
                     expanded = false
                 }
             )
         }
+    }
+}
+
+// ---------------------------------------------------------
+// GLASS TEXT FIELD
+// ---------------------------------------------------------
+
+@Composable
+private fun InputText(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = false,
+    maxLines: Int = 1,
+    interactionSource: MutableInteractionSource? = null
+) {
+    val colors = MaterialTheme.colorScheme
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        singleLine = singleLine,
+        maxLines = if (singleLine) 1 else maxLines,
+        textStyle = TextStyle(color = colors.onSurface, fontSize = 16.sp),
+        cursorBrush = SolidColor(colors.primary),
+        interactionSource = interactionSource ?: remember { MutableInteractionSource() },
+        decorationBox = { innerTextField ->
+            Box(contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                        fontSize = 16.sp
+                    )
+                }
+                innerTextField()
+            }
+        }
+    )
+}
+
+@Composable
+private fun GlassTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(16.dp)
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+
+    Box(
+        modifier = modifier
+            .glass(shape, strong = true, highlighted = focused)
+            .padding(horizontal = 16.dp, vertical = 15.dp)
+    ) {
+        InputText(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = placeholder,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            interactionSource = interaction
+        )
     }
 }
 
@@ -403,17 +665,32 @@ fun JoinScreen(
         keyboardController?.show()
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
+    val submit = {
+        when {
+            displayName.isBlank() -> {
+                errorMessage = "Please enter your display name."
+            }
+
+            displayName.trim().length > 30 -> {
+                errorMessage = "Your name must be 30 characters or fewer."
+            }
+
+            else -> {
+                errorMessage = ""
+                onJoin()
+            }
+        }
+    }
+
+    AuroraBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -425,36 +702,61 @@ fun JoinScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
-            // App logo
+            // App logo with a soft glow
             Box(
                 modifier = Modifier
-                    .size(76.dp)
-                    .background(
-                        MaterialTheme.colorScheme.primary,
-                        CircleShape
-                    ),
+                    .size(96.dp)
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(
+                                    BrandStart.copy(alpha = 0.55f),
+                                    Color.Transparent
+                                )
+                            ),
+                            radius = size.minDimension * 0.95f
+                        )
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "V",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontSize = 38.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(BrandBrush)
+                        .border(
+                            1.dp,
+                            Brush.linearGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.85f),
+                                    Color.White.copy(alpha = 0.1f)
+                                )
+                            ),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.vanish_logo),
+                        contentDescription = "Vanish logo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "Vanish",
-                fontSize = 32.sp,
+                fontSize = 34.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = "A shared space for everyone.",
@@ -462,10 +764,14 @@ fun JoinScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
+            // Glass join card
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(28.dp), strong = true)
+                    .padding(22.dp),
                 horizontalAlignment = Alignment.Start
             ) {
                 Text(
@@ -475,7 +781,7 @@ fun JoinScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = "Choose a display name to continue.",
@@ -483,31 +789,27 @@ fun JoinScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
                     text = "Display name",
                     fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                OutlinedTextField(
+                GlassTextField(
                     value = displayName,
                     onValueChange = {
                         onDisplayNameChange(it.take(30))
                         errorMessage = ""
                     },
-                    placeholder = {
-                        Text("e.g. Haider")
-                    },
+                    placeholder = "e.g. Haider",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(nameFocusRequester),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                        .focusRequester(nameFocusRequester)
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -528,60 +830,155 @@ fun JoinScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
-                Button(
-                    onClick = {
-                        when {
-                            displayName.isBlank() -> {
-                                errorMessage =
-                                    "Please enter your display name."
-                            }
-
-                            displayName.trim().length > 30 -> {
-                                errorMessage =
-                                    "Your name must be 30 characters or fewer."
-                            }
-
-                            else -> {
-                                errorMessage = ""
-                                onJoin()
-                            }
-                        }
-                    },
-                    enabled = !isJoining,
+                // Gradient join button
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                        .height(54.dp)
+                        .alpha(if (isJoining) 0.7f else 1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(BrandStart, BrandMid, BrandEnd)
+                            )
+                        )
+                        .border(
+                            1.dp,
+                            Brush.linearGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.6f),
+                                    Color.White.copy(alpha = 0.05f)
+                                )
+                            ),
+                            RoundedCornerShape(16.dp)
+                        )
+                        .clickable(enabled = !isJoining) { submit() },
+                    contentAlignment = Alignment.Center
                 ) {
                     if (isJoining) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = Color.White,
                             strokeWidth = 2.dp
                         )
                     } else {
                         Text(
                             text = "Join chat",
                             fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "Messages disappear 30 seconds after relay acceptance.",
                 fontSize = 12.sp,
+                textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Spacer(modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+// ---------------------------------------------------------
+// CHAT HEADER
+// ---------------------------------------------------------
+
+@Composable
+private fun GlassHeader(
+    displayName: String,
+    onlineCount: Int,
+    onToggleParticipants: () -> Unit,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
+    onLeave: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glass(RoundedCornerShape(26.dp), strong = true)
+                .padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Global chat",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Text(
+                    text = "Signed in as $displayName",
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Online pill – tap to expand participants
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .clickable(onClick = onToggleParticipants)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusDot(StatusGreen)
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Text(
+                    text = "$onlineCount online",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    maxLines = 1
+                )
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            ThemeModeSelector(
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
+                compact = true
+            )
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onLeave)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Leave",
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp
+                )
+            }
         }
     }
 }
@@ -590,7 +987,6 @@ fun JoinScreen(
 // CHAT SCREEN
 // ---------------------------------------------------------
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     displayName: String,
@@ -609,87 +1005,41 @@ fun ChatScreen(
     var messageText by remember { mutableStateOf("") }
     var showParticipants by remember { mutableStateOf(false) }
 
+    val listState = rememberLazyListState()
+
+    // Keep the newest message in view.
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
     val statusText = when {
         connectionError.isNotBlank() -> connectionError
         isConnected -> "Connected to the Vanish relay"
         else -> "Connecting or reconnecting to relay…"
     }
 
-    val statusColor = when {
-        connectionError.isNotBlank() ->
-            MaterialTheme.colorScheme.errorContainer
-
-        isConnected ->
-            MaterialTheme.colorScheme.secondaryContainer
-
-        else ->
-            MaterialTheme.colorScheme.tertiaryContainer
+    val statusDotColor = when {
+        connectionError.isNotBlank() -> StatusRed
+        isConnected -> StatusGreen
+        else -> StatusAmber
     }
 
-    val statusTextColor = when {
-        connectionError.isNotBlank() ->
-            MaterialTheme.colorScheme.onErrorContainer
-
-        isConnected ->
-            MaterialTheme.colorScheme.onSecondaryContainer
-
-        else ->
-            MaterialTheme.colorScheme.onTertiaryContainer
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
+    AuroraBackground {
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = Color.Transparent,
 
             topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = "Global chat",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Text(
-                                text = "Signed in as $displayName",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                GlassHeader(
+                    displayName = displayName,
+                    onlineCount = onlineCount,
+                    onToggleParticipants = {
+                        showParticipants = !showParticipants
                     },
-                    actions = {
-                        ThemeModeSelector(
-                            themeMode = themeMode,
-                            onThemeModeChange = onThemeModeChange
-                        )
-
-                        TextButton(
-                            onClick = {
-                                showParticipants = !showParticipants
-                            }
-                        ) {
-                            Text(
-                                text = "$onlineCount online",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        TextButton(onClick = onLeave) {
-                            Text(
-                                text = "Leave",
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
-                    )
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onLeave = onLeave
                 )
             },
 
@@ -713,57 +1063,88 @@ fun ChatScreen(
                     .padding(padding)
             ) {
                 // Relay connection status
-                Surface(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = statusColor,
-                    shape = RoundedCornerShape(10.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .glass(RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    StatusDot(statusDotColor, size = 9.dp)
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
                     Text(
                         text = statusText,
-                        modifier = Modifier.padding(12.dp),
                         fontSize = 12.sp,
-                        color = statusTextColor
+                        color = if (connectionError.isNotBlank()) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
                     )
                 }
 
                 // Expandable online participants list
-                if (showParticipants) {
-                    Surface(
+                AnimatedVisibility(visible = showParticipants) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(10.dp),
-                        shadowElevation = 1.dp
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .glass(RoundedCornerShape(20.dp), strong = true)
+                            .padding(16.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp)
-                        ) {
+                        Text(
+                            text = "Online participants ($onlineCount)",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (onlineMembers.isEmpty()) {
                             Text(
-                                text = "Online participants ($onlineCount)",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface
+                                text = "Waiting for participant information...",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        } else {
+                            onlineMembers.forEach { member ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(BrandBrush),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = member.take(1).uppercase(),
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
 
-                            if (onlineMembers.isEmpty()) {
-                                Text(
-                                    text = "Waiting for participant information...",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                onlineMembers.forEach { member ->
                                     Text(
-                                        text = "●  $member",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(vertical = 4.dp)
+                                        text = member,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
+
+                                    StatusDot(StatusGreen, size = 7.dp)
                                 }
                             }
                         }
@@ -771,38 +1152,35 @@ fun ChatScreen(
                 }
 
                 // Expiry information
-                Surface(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = RoundedCornerShape(10.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .glass(RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "⏱",
-                            fontSize = 17.sp
-                        )
+                    Text(
+                        text = "⏱",
+                        fontSize = 16.sp
+                    )
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
-                        Text(
-                            text = "Messages disappear 30 seconds after relay acceptance.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    }
+                    Text(
+                        text = "Messages disappear 30 seconds after relay acceptance.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
 
                 if (messages.isEmpty()) {
                     EmptyChat()
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .weight(1f),
                         contentPadding = PaddingValues(
                             horizontal = 16.dp,
@@ -846,16 +1224,13 @@ fun EmptyChat() {
     ) {
         Box(
             modifier = Modifier
-                .size(72.dp)
-                .background(
-                    MaterialTheme.colorScheme.primaryContainer,
-                    CircleShape
-                ),
+                .size(84.dp)
+                .glass(CircleShape, strong = true),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "✉",
-                fontSize = 32.sp,
+                fontSize = 34.sp,
                 color = MaterialTheme.colorScheme.primary
             )
         }
@@ -898,32 +1273,42 @@ fun MessageBubble(
     val remainingSeconds = ceil(remainingMs / 1000.0).toInt()
     val progress = (remainingMs / 30_000f).coerceIn(0f, 1f)
 
+    val mine = message.isMine
+
+    // Colours are chosen so the timer stays visible on the gradient bubble too.
     val timerColor = when {
         remainingMs <= 5_000L ->
-            MaterialTheme.colorScheme.error
+            if (mine) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.error
 
         remainingMs <= 10_000L ->
-            MaterialTheme.colorScheme.tertiary
+            if (mine) Color(0xFFFFE0A3) else MaterialTheme.colorScheme.tertiary
 
         else ->
-            MaterialTheme.colorScheme.primary
+            if (mine) Color.White else MaterialTheme.colorScheme.primary
     }
 
-    val bubbleColor = if (message.isMine) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-
-    val bubbleTextColor = if (message.isMine) {
-        MaterialTheme.colorScheme.onPrimary
+    val bubbleTextColor = if (mine) {
+        Color.White
     } else {
         MaterialTheme.colorScheme.onSurface
     }
 
+    val subTextColor = if (mine) {
+        Color.White.copy(alpha = 0.78f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    val bubbleShape = RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = if (mine) 20.dp else 6.dp,
+        bottomEnd = if (mine) 6.dp else 20.dp
+    )
+
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isMine) {
+        horizontalArrangement = if (mine) {
             Arrangement.End
         } else {
             Arrangement.Start
@@ -931,108 +1316,113 @@ fun MessageBubble(
     ) {
         Column(
             modifier = Modifier.widthIn(max = 290.dp),
-            horizontalAlignment = if (message.isMine) {
+            horizontalAlignment = if (mine) {
                 Alignment.End
             } else {
                 Alignment.Start
             }
         ) {
-            if (!message.isMine) {
+            if (!mine) {
                 Text(
                     text = message.sender,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(
-                        start = 4.dp,
+                        start = 6.dp,
                         bottom = 4.dp
                     )
                 )
             }
 
-            Surface(
-                color = bubbleColor,
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (message.isMine) 16.dp else 4.dp,
-                    bottomEnd = if (message.isMine) 4.dp else 16.dp
-                ),
-                shadowElevation = 1.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(
-                        horizontal = 14.dp,
-                        vertical = 10.dp
+            val bubbleModifier = if (mine) {
+                Modifier
+                    .clip(bubbleShape)
+                    .background(BrandBrush, bubbleShape)
+                    .border(
+                        1.dp,
+                        Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.55f),
+                                Color.White.copy(alpha = 0.05f)
+                            )
+                        ),
+                        bubbleShape
                     )
+            } else {
+                Modifier.glass(bubbleShape, strong = true)
+            }
+
+            Column(
+                modifier = bubbleModifier.padding(
+                    horizontal = 14.dp,
+                    vertical = 10.dp
+                )
+            ) {
+                Text(
+                    text = message.text,
+                    color = bubbleTextColor,
+                    fontSize = 15.sp
+                )
+
+                Spacer(modifier = Modifier.height(5.dp))
+
+                Text(
+                    text = time,
+                    color = subTextColor,
+                    fontSize = 10.sp,
+                    modifier = Modifier.align(Alignment.End)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = message.text,
-                        color = bubbleTextColor,
-                        fontSize = 15.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(5.dp))
-
-                    Text(
-                        text = time,
-                        color = if (message.isMine) {
-                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        text = "${remainingSeconds}s",
                         fontSize = 10.sp,
-                        modifier = Modifier.align(Alignment.End)
+                        fontWeight = FontWeight.SemiBold,
+                        color = timerColor
                     )
 
-                    Spacer(modifier = Modifier.height(9.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Countdown bar
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (mine) {
+                                    Color.White.copy(alpha = 0.28f)
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                                }
+                            )
                     ) {
-                        Text(
-                            text = "${remainingSeconds}s",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (remainingMs <= 10_000L) {
-                                timerColor
-                            } else {
-                                bubbleTextColor
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        LinearProgressIndicator(
-                            progress = progress,
+                        Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(4.dp),
-                            color = timerColor,
-                            trackColor = if (message.isMine) {
-                                MaterialTheme.colorScheme.onPrimary.copy(
-                                    alpha = 0.25f
-                                )
-                            } else {
-                                MaterialTheme.colorScheme.outline.copy(
-                                    alpha = 0.45f
-                                )
-                            }
+                                .fillMaxWidth(progress)
+                                .fillMaxHeight()
+                                .clip(CircleShape)
+                                .background(timerColor)
                         )
                     }
                 }
             }
 
             // The relay's delivered count is shown for our own messages.
-            if (message.isMine && message.deliveredCount != null) {
+            if (mine && message.deliveredCount != null) {
                 Text(
                     text = "Received by ${message.deliveredCount} connected apps",
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
-                        end = 4.dp,
-                        top = 3.dp
+                        end = 6.dp,
+                        top = 4.dp
                     )
                 )
             }
@@ -1050,49 +1440,64 @@ fun MessageInput(
     onMessageChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = messageText,
-                onValueChange = onMessageChange,
-                modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text("Write a message...")
-                },
-                shape = RoundedCornerShape(24.dp),
-                maxLines = 4
+    val canSend = messageText.isNotBlank() &&
+            messageText.trim().length <= 500
+
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .glass(
+                RoundedCornerShape(30.dp),
+                strong = true,
+                highlighted = focused
             )
+            .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        InputText(
+            value = messageText,
+            onValueChange = onMessageChange,
+            placeholder = "Write a message...",
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 8.dp),
+            maxLines = 4,
+            interactionSource = interaction
+        )
 
-            Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
-            Button(
-                onClick = onSend,
-                enabled = messageText.isNotBlank() &&
-                        messageText.trim().length <= 500,
-                modifier = Modifier.size(52.dp),
-                contentPadding = PaddingValues(0.dp),
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .clip(CircleShape)
+                .background(
+                    if (canSend) {
+                        BrandBrush
+                    } else {
+                        SolidColor(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+                        )
+                    }
                 )
-            ) {
-                Text(
-                    text = "➤",
-                    fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
+                .clickable(enabled = canSend, onClick = onSend),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "➤",
+                fontSize = 18.sp,
+                color = if (canSend) {
+                    Color.White
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
         }
     }
 }

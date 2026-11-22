@@ -3,12 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!--
-      usesCleartextTraffic allows plain HTTP to the development server.
-      Development only. Do not ship this setting in a real app.
-    -->
     <application
-        android:label="Field Sync"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Vanish"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -16,10 +14,12 @@
         <activity
             android:name=".MainActivity"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
         </activity>
     </application>
 
