@@ -77,6 +77,8 @@ fun VanishApp() {
     val relayMessages by repository.messages.collectAsState()
     val isConnected by repository.connected.collectAsState()
     val relayError by repository.error.collectAsState()
+    val onlineMembers by repository.onlineMembers.collectAsState()
+    val onlineCount by repository.onlineCount.collectAsState()
 
     // Convert relay messages into the UI's message model.
     // The repository converts server timestamps using the server clock offset.
@@ -163,6 +165,8 @@ fun VanishApp() {
                 messages = messages,
                 isConnected = isConnected,
                 connectionError = relayError.orEmpty(),
+                onlineCount = onlineCount,
+                onlineMembers = onlineMembers,
                 onSendMessage = { text ->
                     repository.sendMessage(text)
                 },
@@ -367,10 +371,14 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isConnected: Boolean,
     connectionError: String,
+    onlineCount: Int,
+    onlineMembers: List<String>,
     onSendMessage: (String) -> Boolean,
     onLeave: () -> Unit
 ) {
     var messageText by remember { mutableStateOf("") }
+
+    var showParticipants by remember { mutableStateOf(false) }
 
     val statusText = when {
         connectionError.isNotBlank() -> connectionError
@@ -416,6 +424,18 @@ fun ChatScreen(
                         }
                     },
                     actions = {
+                        TextButton(
+                            onClick = {
+                                showParticipants = !showParticipants
+                            }
+                        ) {
+                            Text(
+                                text = "$onlineCount online",
+                                color = PrimaryBlue,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
                         TextButton(onClick = onLeave) {
                             Text(
                                 text = "Leave",
@@ -462,6 +482,48 @@ fun ChatScreen(
                         fontSize = 12.sp,
                         color = statusTextColor
                     )
+                }
+
+                // Expandable online participants list
+                if (showParticipants) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        color = Color.White,
+                        shape = RoundedCornerShape(10.dp),
+                        shadowElevation = 1.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp)
+                        ) {
+                            Text(
+                                text = "Online participants ($onlineCount)",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = DarkText
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (onlineMembers.isEmpty()) {
+                                Text(
+                                    text = "Waiting for participant information...",
+                                    fontSize = 12.sp,
+                                    color = SecondaryText
+                                )
+                            } else {
+                                onlineMembers.forEach { member ->
+                                    Text(
+                                        text = "●  $member",
+                                        fontSize = 13.sp,
+                                        color = DarkText,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Expiry information

@@ -28,6 +28,11 @@ class ChatRepository {
     val messages: StateFlow<List<RelayMessage>> = _messages.asStateFlow()
 
     private val _connected = MutableStateFlow(false)
+    private val _onlineMembers = MutableStateFlow<List<String>>(emptyList())
+    val onlineMembers: StateFlow<List<String>> = _onlineMembers.asStateFlow()
+
+    private val _onlineCount = MutableStateFlow(0)
+    val onlineCount: StateFlow<Int> = _onlineCount.asStateFlow()
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
@@ -143,6 +148,16 @@ class ChatRepository {
 
             is RelayEvent.ConnectionChanged -> {
                 _connected.value = event.connected
+
+                if (!event.connected) {
+                    _onlineMembers.value = emptyList()
+                    _onlineCount.value = 0
+                }
+            }
+
+            is RelayEvent.Presence -> {
+                _onlineMembers.value = event.members
+                _onlineCount.value = event.count
             }
 
             is RelayEvent.IncomingMessage -> {

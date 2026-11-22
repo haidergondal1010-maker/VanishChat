@@ -1,3 +1,4 @@
+
 package com.example.fieldsync.data
 
 sealed class RelayEvent {
@@ -23,6 +24,11 @@ sealed class RelayEvent {
 
     data class Expired(
         val id: String
+    ) : RelayEvent()
+
+    data class Presence(
+        val count: Int,
+        val members: List<String>
     ) : RelayEvent()
 
     data object Pong : RelayEvent()

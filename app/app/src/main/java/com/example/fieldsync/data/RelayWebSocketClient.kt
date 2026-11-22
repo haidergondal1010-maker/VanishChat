@@ -257,6 +257,31 @@ class RelayWebSocketClient(
                 startHeartbeat(webSocket)
             }
 
+
+            "presence" -> {
+                val count = json.optInt("count", 0)
+                val membersJson = json.optJSONArray("members")
+
+                val members = buildList {
+                    if (membersJson != null) {
+                        for (i in 0 until membersJson.length()) {
+                            val name = membersJson.optString(i)
+                            if (name.isNotBlank()) {
+                                add(name)
+                            }
+                        }
+                    }
+                }
+
+                _events.tryEmit(
+                    RelayEvent.Presence(
+                        count = count,
+                        members = members
+                    )
+                )
+            }
+
+
             "message" -> {
                 _events.tryEmit(
                     RelayEvent.IncomingMessage(
