@@ -1,16 +1,7 @@
 
 package com.example.fieldsync
 
-import com.example.fieldsync.data.SendMessageRequestDto
-import kotlinx.coroutines.delay
 import android.content.Context
-import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import java.util.UUID
-import com.example.fieldsync.data.SyncApi
-import com.example.fieldsync.data.JoinRequestDto
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,19 +11,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fieldsync.data.ChatRepository
+import com.example.fieldsync.data.RelayMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 private val AppBackground = Color(0xFFF7F8FA)
 private val PrimaryBlue = Color(0xFF3157D5)
@@ -53,184 +45,111 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Represents a message in the temporary UI preview.
-// The relay will provide the authoritative message data later.
 data class ChatMessage(
     val id: String,
     val sender: String,
     val text: String,
     val timestamp: Long,
     val expiresAt: Long,
-    val isMine: Boolean
+    val isMine: Boolean,
+    val deliveredCount: Int? = null
 )
 
 @Composable
 fun VanishApp() {
     var currentScreen by remember { mutableStateOf("join") }
-
     var displayName by remember { mutableStateOf("") }
-    var serverUrl by remember {
-        mutableStateOf("http://192.168.1.8:8000/")
-    }
-
-    var messages by remember {
-        mutableStateOf(listOf<ChatMessage>())
-    }
-
     var isJoining by remember { mutableStateOf(false) }
     var joinError by remember { mutableStateOf("") }
-    var connectionError by remember { mutableStateOf("") }
 
-    // Keep the API connection and device identity after joining.
-    var activeApi by remember { mutableStateOf<SyncApi?>(null) }
-    var activeDeviceId by remember { mutableStateOf("") }
+    // A new repository is created for each chat session.
+    var repository by remember { mutableStateOf(ChatRepository()) }
 
-    // Sequence number of the last message received from the server.
-    var messageCursor by remember { mutableStateOf(0) }
-
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    // Poll the relay while the user is in the chat screen.
-    LaunchedEffect(currentScreen, activeApi, activeDeviceId) {
-        val api = activeApi
-
-        if (
-            currentScreen == "chat" &&
-            api != null &&
-            activeDeviceId.isNotBlank()
-        ) {
-            while (true) {
-                try {
-                    var hasMore = true
-
-                    // Continue fetching if the server has more than one page.
-                    while (hasMore) {
-                        val response = api.getMessages(
-                            roomId = "class",
-                            since = messageCursor
-                        )
-
-                        val now = System.currentTimeMillis()
-
-                        val receivedMessages = response.messages.mapNotNull { item ->
-                            val messageText = item.text
-
-                            // Expired messages are tombstones.
-                            // They still advance the cursor, but are not displayed.
-                            if (
-                                item.expired ||
-                                messageText.isNullOrBlank() ||
-                                item.expiresAt <= now
-                            ) {
-                                null
-                            } else {
-                                ChatMessage(
-                                    id = item.id,
-                                    sender = item.senderName ?: "Unknown",
-                                    text = messageText,
-                                    timestamp = item.acceptedAt,
-                                    expiresAt = item.expiresAt,
-                                    isMine = item.senderId == activeDeviceId
-                                )
-                            }
-                        }
-
-                        // Avoid adding a message twice if POST and GET overlap.
-                        messages = (messages + receivedMessages)
-                            .distinctBy { it.id }
-
-                        // Advance the cursor even when the page contains
-                        // expired messages that are not displayed.
-                        messageCursor = response.cursor
-                        hasMore = response.hasMore
-                    }
-
-                    // Remove messages as soon as their expiry time passes.
-                    val now = System.currentTimeMillis()
-                    messages = messages.filter {
-                        it.expiresAt > now
-                    }
-
-                    connectionError = ""
-
-                } catch (e: Exception) {
-                    connectionError = e.localizedMessage
-                        ?: "Unable to receive messages from the server."
-                }
-
-                delay(1000)
-            }
+    // Shut down the active repository when it is replaced or the screen is disposed.
+    DisposableEffect(repository) {
+        val activeRepository = repository
+        onDispose {
+            activeRepository.shutdown()
         }
     }
+
+    // Observe the repository's live state.
+    val relayMessages by repository.messages.collectAsState()
+    val isConnected by repository.connected.collectAsState()
+    val relayError by repository.error.collectAsState()
+
+    // Convert relay messages into the UI's message model.
+    // The repository converts server timestamps using the server clock offset.
+    val messages = relayMessages.map { message ->
+        ChatMessage(
+            id = message.id,
+            sender = message.sender,
+            text = message.text,
+            timestamp = repository.toLocalTime(message.sentAt),
+            expiresAt = message.expiresAt,
+            isMine = message.isMine,
+            deliveredCount = message.deliveredCount
+        )
+    }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     when (currentScreen) {
         "join" -> {
             JoinScreen(
                 displayName = displayName,
                 onDisplayNameChange = { displayName = it },
-                serverUrl = serverUrl,
-                onServerUrlChange = { serverUrl = it },
                 isJoining = isJoining,
                 serverError = joinError,
                 onJoin = {
                     if (!isJoining) {
-                        scope.launch {
-                            isJoining = true
-                            joinError = ""
+                        val name = displayName.trim()
 
-                            try {
-                                val prefs = context.getSharedPreferences(
-                                    "sync",
-                                    Context.MODE_PRIVATE
-                                )
+                        when {
+                            name.isBlank() -> {
+                                joinError = "Please enter your display name."
+                            }
 
-                                val deviceId = prefs.getString(
-                                    "device_id",
-                                    null
-                                ) ?: UUID.randomUUID().toString().also {
-                                    prefs.edit()
-                                        .putString("device_id", it)
-                                        .apply()
-                                }
+                            name.length > 30 -> {
+                                joinError = "Your display name must be 30 characters or fewer."
+                            }
 
-                                val baseUrl = serverUrl.trim().let {
-                                    if (it.endsWith("/")) it else "$it/"
-                                }
+                            else -> {
+                                isJoining = true
+                                joinError = ""
 
-                                val api = Retrofit.Builder()
-                                    .baseUrl(baseUrl)
-                                    .addConverterFactory(
-                                        GsonConverterFactory.create()
+                                try {
+                                    // Keep the same device ID across app sessions.
+                                    val prefs = context.getSharedPreferences(
+                                        "sync",
+                                        Context.MODE_PRIVATE
                                     )
-                                    .build()
-                                    .create(SyncApi::class.java)
 
-                                val response = api.join(
-                                    JoinRequestDto(
+                                    val deviceId = prefs.getString(
+                                        "device_id",
+                                        null
+                                    ) ?: UUID.randomUUID().toString().also {
+                                        prefs.edit()
+                                            .putString("device_id", it)
+                                            .apply()
+                                    }
+
+                                    // Start the WebSocket connection.
+                                    // The repository handles connection, heartbeat,
+                                    // reconnection, message queueing and expiry.
+                                    repository.connect(
                                         deviceId = deviceId,
-                                        displayName = displayName.trim(),
-                                        roomId = "class"
+                                        displayName = name
                                     )
-                                )
 
-                                if (response.joined) {
-                                    activeApi = api
-                                    activeDeviceId = deviceId
-                                    messageCursor = 0
-                                    messages = emptyList()
-                                    connectionError = ""
+                                    displayName = name
                                     currentScreen = "chat"
-                                } else {
-                                    joinError =
-                                        "The server did not confirm your join."
+                                } catch (e: Exception) {
+                                    joinError = e.localizedMessage
+                                        ?: "Unable to start the relay connection."
+                                } finally {
+                                    isJoining = false
                                 }
-
-                            } catch (e: Exception) {
-                                joinError = e.localizedMessage
-                                    ?: "Unable to connect to the relay server."
-                            } finally {
-                                isJoining = false
                             }
                         }
                     }
@@ -242,59 +161,17 @@ fun VanishApp() {
             ChatScreen(
                 displayName = displayName,
                 messages = messages,
-                connectionError = connectionError,
+                isConnected = isConnected,
+                connectionError = relayError.orEmpty(),
                 onSendMessage = { text ->
-                    val api = activeApi
-                    val deviceId = activeDeviceId
-
-                    if (api != null && deviceId.isNotBlank()) {
-                        scope.launch {
-                            try {
-                                val response = api.sendMessage(
-                                    SendMessageRequestDto(
-                                        id = UUID.randomUUID().toString(),
-                                        roomId = "class",
-                                        senderId = deviceId,
-                                        text = text
-                                    )
-                                )
-
-                                // The server's response is authoritative.
-                                if (
-                                    !response.expired &&
-                                    response.text != null &&
-                                    response.expiresAt > System.currentTimeMillis()
-                                ) {
-                                    val sentMessage = ChatMessage(
-                                        id = response.id,
-                                        sender = response.senderName ?: displayName,
-                                        text = response.text,
-                                        timestamp = response.acceptedAt,
-                                        expiresAt = response.expiresAt,
-                                        isMine = true
-                                    )
-
-                                    messages = (messages + sentMessage)
-                                        .distinctBy { it.id }
-                                }
-
-                                connectionError = ""
-
-                            } catch (e: Exception) {
-                                connectionError = e.localizedMessage
-                                    ?: "Message could not be sent."
-                            }
-                        }
-                    } else {
-                        connectionError = "Not connected to the relay server."
-                    }
+                    repository.sendMessage(text)
                 },
                 onLeave = {
-                    messages = emptyList()
-                    activeApi = null
-                    activeDeviceId = ""
-                    messageCursor = 0
-                    connectionError = ""
+                    repository.shutdown()
+                    repository = ChatRepository()
+
+                    displayName = ""
+                    joinError = ""
                     currentScreen = "join"
                 }
             )
@@ -310,12 +187,10 @@ fun VanishApp() {
 fun JoinScreen(
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
-    serverUrl: String,
-    onServerUrlChange: (String) -> Unit,
     isJoining: Boolean,
     serverError: String,
     onJoin: () -> Unit
-)  {
+) {
     var errorMessage by remember { mutableStateOf("") }
 
     Surface(
@@ -330,7 +205,6 @@ fun JoinScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-
             // App logo
             Box(
                 modifier = Modifier
@@ -358,7 +232,7 @@ fun JoinScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "A private space for your class.",
+                text = "A shared space for everyone.",
                 fontSize = 15.sp,
                 color = SecondaryText
             )
@@ -370,7 +244,7 @@ fun JoinScreen(
                 horizontalAlignment = Alignment.Start
             ) {
                 Text(
-                    text = "Join your class",
+                    text = "Join Vanish",
                     fontSize = 21.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = DarkText
@@ -379,7 +253,7 @@ fun JoinScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Enter your details to continue.",
+                    text = "Choose a display name to continue.",
                     fontSize = 14.sp,
                     color = SecondaryText
                 )
@@ -398,7 +272,7 @@ fun JoinScreen(
                 OutlinedTextField(
                     value = displayName,
                     onValueChange = {
-                        onDisplayNameChange(it)
+                        onDisplayNameChange(it.take(30))
                         errorMessage = ""
                     },
                     placeholder = {
@@ -409,39 +283,11 @@ fun JoinScreen(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Text(
-                    text = "Relay server URL",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp,
-                    color = DarkText
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = serverUrl,
-                    onValueChange = {
-                        onServerUrlChange(it)
-                        errorMessage = ""
-                    },
-                    placeholder = {
-                        Text("http://192.168.1.100:8000/")
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri
-                    )
-                )
-
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Room: class",
-                    fontSize = 13.sp,
+                    text = "Your name can contain up to 30 characters.",
+                    fontSize = 12.sp,
                     color = SecondaryText
                 )
 
@@ -459,17 +305,13 @@ fun JoinScreen(
 
                 Button(
                     onClick = {
-                        val validUrl =
-                            serverUrl.startsWith("http://") ||
-                                    serverUrl.startsWith("https://")
-
                         when {
                             displayName.isBlank() -> {
                                 errorMessage = "Please enter your display name."
                             }
 
-                            !validUrl -> {
-                                errorMessage = "Enter a valid HTTP or HTTPS server URL."
+                            displayName.trim().length > 30 -> {
+                                errorMessage = "Your name must be 30 characters or fewer."
                             }
 
                             else -> {
@@ -495,7 +337,7 @@ fun JoinScreen(
                         )
                     } else {
                         Text(
-                            text = "Join class",
+                            text = "Join chat",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -523,11 +365,30 @@ fun JoinScreen(
 fun ChatScreen(
     displayName: String,
     messages: List<ChatMessage>,
+    isConnected: Boolean,
     connectionError: String,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String) -> Boolean,
     onLeave: () -> Unit
-){
+) {
     var messageText by remember { mutableStateOf("") }
+
+    val statusText = when {
+        connectionError.isNotBlank() -> connectionError
+        isConnected -> "Connected to the Vanish relay"
+        else -> "Connecting or reconnecting to relay…"
+    }
+
+    val statusColor = when {
+        connectionError.isNotBlank() -> Color(0xFFFFEBEE)
+        isConnected -> Color(0xFFE8F5E9)
+        else -> Color(0xFFFFF3DF)
+    }
+
+    val statusTextColor = when {
+        connectionError.isNotBlank() -> MaterialTheme.colorScheme.error
+        isConnected -> Color(0xFF287A3D)
+        else -> Color(0xFF91611D)
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -541,7 +402,7 @@ fun ChatScreen(
                     title = {
                         Column {
                             Text(
-                                text = "Class room",
+                                text = "Global chat",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = DarkText
@@ -571,19 +432,17 @@ fun ChatScreen(
             bottomBar = {
                 MessageInput(
                     messageText = messageText,
-                    onMessageChange = { messageText = it },
+                    onMessageChange = { messageText = it.take(500) },
                     onSend = {
                         val trimmed = messageText.trim()
 
-                        if (trimmed.isNotEmpty()) {
-                            onSendMessage(trimmed)
+                        if (trimmed.isNotEmpty() && onSendMessage(trimmed)) {
                             messageText = ""
                         }
                     }
                 )
             }
         ) { padding ->
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -594,26 +453,14 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = if (connectionError.isBlank()) {
-                        Color(0xFFE8F5E9)
-                    } else {
-                        Color(0xFFFFEBEE)
-                    },
+                    color = statusColor,
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text(
-                        text = if (connectionError.isBlank()) {
-                            "Connected to relay server"
-                        } else {
-                            connectionError
-                        },
+                        text = statusText,
                         modifier = Modifier.padding(12.dp),
                         fontSize = 12.sp,
-                        color = if (connectionError.isBlank()) {
-                            Color(0xFF287A3D)
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
+                        color = statusTextColor
                     )
                 }
 
@@ -637,7 +484,7 @@ fun ChatScreen(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Text(
-                            text = "Messages disappear 30 seconds after acceptance.",
+                            text = "Messages disappear 30 seconds after relay acceptance.",
                             fontSize = 12.sp,
                             color = Color(0xFF91611D)
                         )
@@ -711,7 +558,7 @@ fun EmptyChat() {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Start a conversation with your class.",
+            text = "Send a message to everyone connected.",
             fontSize = 14.sp,
             color = SecondaryText
         )
@@ -747,7 +594,6 @@ fun MessageBubble(message: ChatMessage) {
                 Alignment.Start
             }
         ) {
-
             if (!message.isMine) {
                 Text(
                     text = message.sender,
@@ -805,6 +651,19 @@ fun MessageBubble(message: ChatMessage) {
                     )
                 }
             }
+
+            // The relay's delivered count is shown for our own messages.
+            if (message.isMine && message.deliveredCount != null) {
+                Text(
+                    text = "Received by ${message.deliveredCount} connected apps",
+                    fontSize = 10.sp,
+                    color = SecondaryText,
+                    modifier = Modifier.padding(
+                        end = 4.dp,
+                        top = 3.dp
+                    )
+                )
+            }
         }
     }
 }
@@ -846,7 +705,8 @@ fun MessageInput(
 
             Button(
                 onClick = onSend,
-                enabled = messageText.isNotBlank(),
+                enabled = messageText.isNotBlank() &&
+                        messageText.trim().length <= 500,
                 modifier = Modifier.size(52.dp),
                 contentPadding = PaddingValues(0.dp),
                 shape = CircleShape,
