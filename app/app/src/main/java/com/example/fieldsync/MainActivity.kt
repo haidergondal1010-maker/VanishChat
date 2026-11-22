@@ -1,6 +1,11 @@
 
 package com.example.fieldsync
 
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.delay
+import kotlin.math.ceil
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -65,6 +70,7 @@ fun VanishApp() {
     // A new repository is created for each chat session.
     var repository by remember { mutableStateOf(ChatRepository()) }
 
+
     // Shut down the active repository when it is replaced or the screen is disposed.
     DisposableEffect(repository) {
         val activeRepository = repository
@@ -92,6 +98,19 @@ fun VanishApp() {
             isMine = message.isMine,
             deliveredCount = message.deliveredCount
         )
+    }
+
+    var timerNow by remember {
+        mutableLongStateOf(System.currentTimeMillis())
+    }
+
+    LaunchedEffect(currentScreen, messages.size) {
+        if (currentScreen == "chat" && messages.isNotEmpty()) {
+            while (true) {
+                delay(250)
+                timerNow = System.currentTimeMillis()
+            }
+        }
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -167,6 +186,10 @@ fun VanishApp() {
                 connectionError = relayError.orEmpty(),
                 onlineCount = onlineCount,
                 onlineMembers = onlineMembers,
+                remainingLifetime = { expiresAt, now ->
+                    repository.remainingLifetime(expiresAt, now)
+                },
+                timerNow = timerNow,
                 onSendMessage = { text ->
                     repository.sendMessage(text)
                 },
@@ -196,6 +219,19 @@ fun JoinScreen(
     onJoin: () -> Unit
 ) {
     var errorMessage by remember { mutableStateOf("") }
+
+    val nameFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        delay(300)
+        nameFocusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    LaunchedEffect(Unit) {
+        nameFocusRequester.requestFocus()
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -282,7 +318,9 @@ fun JoinScreen(
                     placeholder = {
                         Text("e.g. Haider")
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(nameFocusRequester),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -374,7 +412,9 @@ fun ChatScreen(
     onlineCount: Int,
     onlineMembers: List<String>,
     onSendMessage: (String) -> Boolean,
-    onLeave: () -> Unit
+    onLeave: () -> Unit,
+    remainingLifetime: (Long, Long) -> Long,
+    timerNow: Long,
 ) {
     var messageText by remember { mutableStateOf("") }
 
@@ -570,7 +610,15 @@ fun ChatScreen(
                             items = messages,
                             key = { it.id }
                         ) { message ->
-                            MessageBubble(message)
+                            val remainingMs = remainingLifetime(
+                                message.expiresAt,
+                                timerNow
+                            )
+
+                            MessageBubble(
+                                message = message,
+                                remainingMs = remainingMs
+                            )
                         }
                     }
                 }
@@ -632,12 +680,23 @@ fun EmptyChat() {
 // ---------------------------------------------------------
 
 @Composable
-fun MessageBubble(message: ChatMessage) {
+fun MessageBubble(
+    message: ChatMessage,
+    remainingMs: Long
+) {
     val time = remember(message.timestamp) {
         SimpleDateFormat(
             "hh:mm a",
             Locale.getDefault()
         ).format(Date(message.timestamp))
+    }
+    val remainingSeconds = ceil(remainingMs / 1000.0).toInt()
+    val progress = (remainingMs / 30_000f).coerceIn(0f, 1f)
+
+    val timerColor = when {
+        remainingMs <= 5_000L -> Color(0xFFE53935)
+        remainingMs <= 10_000L -> Color(0xFFFF9800)
+        else -> if (message.isMine) Color(0xFFDCE4FF) else PrimaryBlue
     }
 
     Row(
@@ -711,6 +770,34 @@ fun MessageBubble(message: ChatMessage) {
                         fontSize = 10.sp,
                         modifier = Modifier.align(Alignment.End)
                     )
+                    Spacer(modifier = Modifier.height(9.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${remainingSeconds}s",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = timerColor
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        LinearProgressIndicator(
+                            progress = progress,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(4.dp),
+                            color = timerColor,
+                            trackColor = if (message.isMine) {
+                                Color(0xFF8298E8)
+                            } else {
+                                Color(0xFFE4E8F0)
+                            }
+                        )
+                    }
                 }
             }
 

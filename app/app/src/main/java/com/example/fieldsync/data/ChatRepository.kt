@@ -281,8 +281,11 @@ class ChatRepository {
         return serverTimestamp - clockOffset
     }
 
-    fun remainingLifetime(expiresAt: Long): Long {
-        return (expiresAt - clockOffset - System.currentTimeMillis())
+    fun remainingLifetime(
+        expiresAt: Long,
+        localNow: Long = System.currentTimeMillis()
+    ): Long {
+        return (expiresAt - clockOffset - localNow)
             .coerceAtLeast(0L)
     }
 
