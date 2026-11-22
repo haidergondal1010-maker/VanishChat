@@ -1,16 +1,12 @@
 
 package com.example.fieldsync
 
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import kotlinx.coroutines.delay
-import kotlin.math.ceil
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,35 +16,117 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fieldsync.data.ChatRepository
-import com.example.fieldsync.data.RelayMessage
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.ceil
 
-private val AppBackground = Color(0xFFF7F8FA)
-private val PrimaryBlue = Color(0xFF3157D5)
-private val DarkText = Color(0xFF172033)
-private val SecondaryText = Color(0xFF778197)
-private val OwnMessageColor = Color(0xFF3157D5)
-private val OtherMessageColor = Color(0xFFFFFFFF)
+// ---------------------------------------------------------
+// THEME COLORS
+// ---------------------------------------------------------
+
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF3157D5),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE8EDFF),
+    onPrimaryContainer = Color(0xFF172D78),
+
+    secondary = Color(0xFF287A3D),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE8F5E9),
+    onSecondaryContainer = Color(0xFF205C30),
+
+    tertiary = Color(0xFF91611D),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFFFF3DF),
+    onTertiaryContainer = Color(0xFF704713),
+
+    error = Color(0xFFB3261E),
+    errorContainer = Color(0xFFFFEBEE),
+    onErrorContainer = Color(0xFF8C1D18),
+
+    background = Color(0xFFF7F8FA),
+    onBackground = Color(0xFF172033),
+
+    surface = Color.White,
+    onSurface = Color(0xFF172033),
+
+    surfaceVariant = Color(0xFFEEF1F6),
+    onSurfaceVariant = Color(0xFF778197),
+
+    outline = Color(0xFFD7DDE7)
+)
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF91A8FF),
+    onPrimary = Color(0xFF101B3C),
+    primaryContainer = Color(0xFF293D78),
+    onPrimaryContainer = Color(0xFFDCE4FF),
+
+    secondary = Color(0xFF8DD69C),
+    onSecondary = Color(0xFF103A1B),
+    secondaryContainer = Color(0xFF205C30),
+    onSecondaryContainer = Color(0xFFB8F0C2),
+
+    tertiary = Color(0xFFFFCC80),
+    onTertiary = Color(0xFF482D08),
+    tertiaryContainer = Color(0xFF704713),
+    onTertiaryContainer = Color(0xFFFFE0AE),
+
+    error = Color(0xFFFFB4AB),
+    errorContainer = Color(0xFF601410),
+    onErrorContainer = Color(0xFFFFDAD6),
+
+    background = Color(0xFF10131A),
+    onBackground = Color(0xFFE8ECF5),
+
+    surface = Color(0xFF191E29),
+    onSurface = Color(0xFFE8ECF5),
+
+    surfaceVariant = Color(0xFF252C3A),
+    onSurfaceVariant = Color(0xFFAAB4C6),
+
+    outline = Color(0xFF414B5D)
+)
+
+@Composable
+private fun VanishTheme(
+    darkTheme: Boolean,
+    content: @Composable () -> Unit
+) {
+    MaterialTheme(
+        colorScheme = if (darkTheme) DarkColors else LightColors,
+        content = content
+    )
+}
+
+// ---------------------------------------------------------
+// MAIN ACTIVITY
+// ---------------------------------------------------------
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
-                VanishApp()
-            }
+            VanishApp()
         }
     }
 }
+
+// ---------------------------------------------------------
+// MESSAGE MODEL
+// ---------------------------------------------------------
 
 data class ChatMessage(
     val id: String,
@@ -60,6 +138,10 @@ data class ChatMessage(
     val deliveredCount: Int? = null
 )
 
+// ---------------------------------------------------------
+// APP ROOT
+// ---------------------------------------------------------
+
 @Composable
 fun VanishApp() {
     var currentScreen by remember { mutableStateOf("join") }
@@ -70,8 +152,7 @@ fun VanishApp() {
     // A new repository is created for each chat session.
     var repository by remember { mutableStateOf(ChatRepository()) }
 
-
-    // Shut down the active repository when it is replaced or the screen is disposed.
+    // Shut down the active repository when it is replaced or disposed.
     DisposableEffect(repository) {
         val activeRepository = repository
         onDispose {
@@ -87,7 +168,6 @@ fun VanishApp() {
     val onlineCount by repository.onlineCount.collectAsState()
 
     // Convert relay messages into the UI's message model.
-    // The repository converts server timestamps using the server clock offset.
     val messages = relayMessages.map { message ->
         ChatMessage(
             id = message.id,
@@ -115,91 +195,183 @@ fun VanishApp() {
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    when (currentScreen) {
-        "join" -> {
-            JoinScreen(
-                displayName = displayName,
-                onDisplayNameChange = { displayName = it },
-                isJoining = isJoining,
-                serverError = joinError,
-                onJoin = {
-                    if (!isJoining) {
-                        val name = displayName.trim()
+    // Persist the selected theme preference.
+    val preferences = remember {
+        context.getSharedPreferences(
+            "vanish_settings",
+            Context.MODE_PRIVATE
+        )
+    }
 
-                        when {
-                            name.isBlank() -> {
-                                joinError = "Please enter your display name."
-                            }
+    var themeMode by remember {
+        mutableStateOf(
+            preferences.getString("theme_mode", "system") ?: "system"
+        )
+    }
 
-                            name.length > 30 -> {
-                                joinError = "Your display name must be 30 characters or fewer."
-                            }
+    // Follow the Android system theme unless the user selects
+    // Light or Dark manually.
+    val darkTheme = when (themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> isSystemInDarkTheme()
+    }
 
-                            else -> {
-                                isJoining = true
-                                joinError = ""
+    val onThemeModeChange: (String) -> Unit = { mode ->
+        themeMode = mode
+        preferences.edit()
+            .putString("theme_mode", mode)
+            .apply()
+    }
 
-                                try {
-                                    // Keep the same device ID across app sessions.
-                                    val prefs = context.getSharedPreferences(
-                                        "sync",
-                                        Context.MODE_PRIVATE
-                                    )
+    VanishTheme(darkTheme = darkTheme) {
+        when (currentScreen) {
+            "join" -> {
+                JoinScreen(
+                    displayName = displayName,
+                    onDisplayNameChange = { displayName = it },
+                    isJoining = isJoining,
+                    serverError = joinError,
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onJoin = {
+                        if (!isJoining) {
+                            val name = displayName.trim()
 
-                                    val deviceId = prefs.getString(
-                                        "device_id",
-                                        null
-                                    ) ?: UUID.randomUUID().toString().also {
-                                        prefs.edit()
-                                            .putString("device_id", it)
-                                            .apply()
-                                    }
+                            when {
+                                name.isBlank() -> {
+                                    joinError =
+                                        "Please enter your display name."
+                                }
 
-                                    // Start the WebSocket connection.
-                                    // The repository handles connection, heartbeat,
-                                    // reconnection, message queueing and expiry.
-                                    repository.connect(
-                                        deviceId = deviceId,
+                                name.length > 30 -> {
+                                    joinError =
+                                        "Your display name must be 30 characters or fewer."
+                                }
+
+                                else -> {
+                                    isJoining = true
+                                    joinError = ""
+
+                                    try {
+                                        // Keep the same device ID across app sessions.
+                                        val prefs = context.getSharedPreferences(
+                                            "sync",
+                                            Context.MODE_PRIVATE
+                                        )
+
+                                        val deviceId = prefs.getString(
+                                            "device_id",
+                                            null
+                                        ) ?: UUID.randomUUID().toString().also {
+                                            prefs.edit()
+                                                .putString("device_id", it)
+                                                .apply()
+                                        }
+
+                                        // Start the WebSocket connection.
+                                        repository.connect(
+                                            deviceId = deviceId,
+                                            displayName = name
+                                        )
+
                                         displayName = name
-                                    )
-
-                                    displayName = name
-                                    currentScreen = "chat"
-                                } catch (e: Exception) {
-                                    joinError = e.localizedMessage
-                                        ?: "Unable to start the relay connection."
-                                } finally {
-                                    isJoining = false
+                                        currentScreen = "chat"
+                                    } catch (e: Exception) {
+                                        joinError = e.localizedMessage
+                                            ?: "Unable to start the relay connection."
+                                    } finally {
+                                        isJoining = false
+                                    }
                                 }
                             }
                         }
                     }
-                }
+                )
+            }
+
+            "chat" -> {
+                ChatScreen(
+                    displayName = displayName,
+                    messages = messages,
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    isConnected = isConnected,
+                    connectionError = relayError.orEmpty(),
+                    onlineCount = onlineCount,
+                    onlineMembers = onlineMembers,
+                    remainingLifetime = { expiresAt, now ->
+                        repository.remainingLifetime(expiresAt, now)
+                    },
+                    timerNow = timerNow,
+                    onSendMessage = { text ->
+                        repository.sendMessage(text)
+                    },
+                    onLeave = {
+                        repository.shutdown()
+                        repository = ChatRepository()
+
+                        displayName = ""
+                        joinError = ""
+                        currentScreen = "join"
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------
+// THEME SELECTOR
+// ---------------------------------------------------------
+
+@Composable
+fun ThemeModeSelector(
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    val currentLabel = when (themeMode) {
+        "light" -> "Light"
+        "dark" -> "Dark"
+        else -> "System"
+    }
+
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                text = "Theme: $currentLabel",
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
             )
         }
 
-        "chat" -> {
-            ChatScreen(
-                displayName = displayName,
-                messages = messages,
-                isConnected = isConnected,
-                connectionError = relayError.orEmpty(),
-                onlineCount = onlineCount,
-                onlineMembers = onlineMembers,
-                remainingLifetime = { expiresAt, now ->
-                    repository.remainingLifetime(expiresAt, now)
-                },
-                timerNow = timerNow,
-                onSendMessage = { text ->
-                    repository.sendMessage(text)
-                },
-                onLeave = {
-                    repository.shutdown()
-                    repository = ChatRepository()
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("System default") },
+                onClick = {
+                    onThemeModeChange("system")
+                    expanded = false
+                }
+            )
 
-                    displayName = ""
-                    joinError = ""
-                    currentScreen = "join"
+            DropdownMenuItem(
+                text = { Text("Light mode") },
+                onClick = {
+                    onThemeModeChange("light")
+                    expanded = false
+                }
+            )
+
+            DropdownMenuItem(
+                text = { Text("Dark mode") },
+                onClick = {
+                    onThemeModeChange("dark")
+                    expanded = false
                 }
             )
         }
@@ -216,6 +388,8 @@ fun JoinScreen(
     onDisplayNameChange: (String) -> Unit,
     isJoining: Boolean,
     serverError: String,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     onJoin: () -> Unit
 ) {
     var errorMessage by remember { mutableStateOf("") }
@@ -229,13 +403,9 @@ fun JoinScreen(
         keyboardController?.show()
     }
 
-    LaunchedEffect(Unit) {
-        nameFocusRequester.requestFocus()
-    }
-
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = AppBackground
+        color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -245,16 +415,31 @@ fun JoinScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                ThemeModeSelector(
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // App logo
             Box(
                 modifier = Modifier
                     .size(76.dp)
-                    .background(PrimaryBlue, CircleShape),
+                    .background(
+                        MaterialTheme.colorScheme.primary,
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "V",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     fontSize = 38.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -266,7 +451,7 @@ fun JoinScreen(
                 text = "Vanish",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = DarkText
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -274,7 +459,7 @@ fun JoinScreen(
             Text(
                 text = "A shared space for everyone.",
                 fontSize = 15.sp,
-                color = SecondaryText
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(40.dp))
@@ -287,7 +472,7 @@ fun JoinScreen(
                     text = "Join Vanish",
                     fontSize = 21.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = DarkText
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -295,7 +480,7 @@ fun JoinScreen(
                 Text(
                     text = "Choose a display name to continue.",
                     fontSize = 14.sp,
-                    color = SecondaryText
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -304,7 +489,7 @@ fun JoinScreen(
                     text = "Display name",
                     fontWeight = FontWeight.Medium,
                     fontSize = 14.sp,
-                    color = DarkText
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -330,7 +515,7 @@ fun JoinScreen(
                 Text(
                     text = "Your name can contain up to 30 characters.",
                     fontSize = 12.sp,
-                    color = SecondaryText
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 if (errorMessage.isNotEmpty() || serverError.isNotEmpty()) {
@@ -349,11 +534,13 @@ fun JoinScreen(
                     onClick = {
                         when {
                             displayName.isBlank() -> {
-                                errorMessage = "Please enter your display name."
+                                errorMessage =
+                                    "Please enter your display name."
                             }
 
                             displayName.trim().length > 30 -> {
-                                errorMessage = "Your name must be 30 characters or fewer."
+                                errorMessage =
+                                    "Your name must be 30 characters or fewer."
                             }
 
                             else -> {
@@ -368,13 +555,14 @@ fun JoinScreen(
                         .height(54.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = PrimaryBlue
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 ) {
                     if (isJoining) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
@@ -392,7 +580,7 @@ fun JoinScreen(
             Text(
                 text = "Messages disappear 30 seconds after relay acceptance.",
                 fontSize = 12.sp,
-                color = SecondaryText
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -415,9 +603,10 @@ fun ChatScreen(
     onLeave: () -> Unit,
     remainingLifetime: (Long, Long) -> Long,
     timerNow: Long,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
 ) {
     var messageText by remember { mutableStateOf("") }
-
     var showParticipants by remember { mutableStateOf(false) }
 
     val statusText = when {
@@ -427,23 +616,33 @@ fun ChatScreen(
     }
 
     val statusColor = when {
-        connectionError.isNotBlank() -> Color(0xFFFFEBEE)
-        isConnected -> Color(0xFFE8F5E9)
-        else -> Color(0xFFFFF3DF)
+        connectionError.isNotBlank() ->
+            MaterialTheme.colorScheme.errorContainer
+
+        isConnected ->
+            MaterialTheme.colorScheme.secondaryContainer
+
+        else ->
+            MaterialTheme.colorScheme.tertiaryContainer
     }
 
     val statusTextColor = when {
-        connectionError.isNotBlank() -> MaterialTheme.colorScheme.error
-        isConnected -> Color(0xFF287A3D)
-        else -> Color(0xFF91611D)
+        connectionError.isNotBlank() ->
+            MaterialTheme.colorScheme.onErrorContainer
+
+        isConnected ->
+            MaterialTheme.colorScheme.onSecondaryContainer
+
+        else ->
+            MaterialTheme.colorScheme.onTertiaryContainer
     }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = AppBackground
+        color = MaterialTheme.colorScheme.background
     ) {
         Scaffold(
-            containerColor = AppBackground,
+            containerColor = MaterialTheme.colorScheme.background,
 
             topBar = {
                 TopAppBar(
@@ -453,17 +652,22 @@ fun ChatScreen(
                                 text = "Global chat",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
-                                color = DarkText
+                                color = MaterialTheme.colorScheme.onSurface
                             )
 
                             Text(
                                 text = "Signed in as $displayName",
                                 fontSize = 12.sp,
-                                color = SecondaryText
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     },
                     actions = {
+                        ThemeModeSelector(
+                            themeMode = themeMode,
+                            onThemeModeChange = onThemeModeChange
+                        )
+
                         TextButton(
                             onClick = {
                                 showParticipants = !showParticipants
@@ -471,7 +675,7 @@ fun ChatScreen(
                         ) {
                             Text(
                                 text = "$onlineCount online",
-                                color = PrimaryBlue,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -479,12 +683,12 @@ fun ChatScreen(
                         TextButton(onClick = onLeave) {
                             Text(
                                 text = "Leave",
-                                color = PrimaryBlue
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = AppBackground
+                        containerColor = MaterialTheme.colorScheme.background
                     )
                 )
             },
@@ -530,7 +734,7 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp),
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(10.dp),
                         shadowElevation = 1.dp
                     ) {
@@ -541,7 +745,7 @@ fun ChatScreen(
                                 text = "Online participants ($onlineCount)",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 14.sp,
-                                color = DarkText
+                                color = MaterialTheme.colorScheme.onSurface
                             )
 
                             Spacer(modifier = Modifier.height(8.dp))
@@ -550,14 +754,14 @@ fun ChatScreen(
                                 Text(
                                     text = "Waiting for participant information...",
                                     fontSize = 12.sp,
-                                    color = SecondaryText
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             } else {
                                 onlineMembers.forEach { member ->
                                     Text(
                                         text = "●  $member",
                                         fontSize = 13.sp,
-                                        color = DarkText,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.padding(vertical = 4.dp)
                                     )
                                 }
@@ -571,7 +775,7 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = Color(0xFFFFF3DF),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Row(
@@ -588,7 +792,7 @@ fun ChatScreen(
                         Text(
                             text = "Messages disappear 30 seconds after relay acceptance.",
                             fontSize = 12.sp,
-                            color = Color(0xFF91611D)
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                 }
@@ -644,7 +848,7 @@ fun EmptyChat() {
             modifier = Modifier
                 .size(72.dp)
                 .background(
-                    Color(0xFFE8EDFF),
+                    MaterialTheme.colorScheme.primaryContainer,
                     CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -652,7 +856,7 @@ fun EmptyChat() {
             Text(
                 text = "✉",
                 fontSize = 32.sp,
-                color = PrimaryBlue
+                color = MaterialTheme.colorScheme.primary
             )
         }
 
@@ -662,7 +866,7 @@ fun EmptyChat() {
             text = "No messages yet",
             fontSize = 19.sp,
             fontWeight = FontWeight.SemiBold,
-            color = DarkText
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -670,7 +874,7 @@ fun EmptyChat() {
         Text(
             text = "Send a message to everyone connected.",
             fontSize = 14.sp,
-            color = SecondaryText
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -690,13 +894,31 @@ fun MessageBubble(
             Locale.getDefault()
         ).format(Date(message.timestamp))
     }
+
     val remainingSeconds = ceil(remainingMs / 1000.0).toInt()
     val progress = (remainingMs / 30_000f).coerceIn(0f, 1f)
 
     val timerColor = when {
-        remainingMs <= 5_000L -> Color(0xFFE53935)
-        remainingMs <= 10_000L -> Color(0xFFFF9800)
-        else -> if (message.isMine) Color(0xFFDCE4FF) else PrimaryBlue
+        remainingMs <= 5_000L ->
+            MaterialTheme.colorScheme.error
+
+        remainingMs <= 10_000L ->
+            MaterialTheme.colorScheme.tertiary
+
+        else ->
+            MaterialTheme.colorScheme.primary
+    }
+
+    val bubbleColor = if (message.isMine) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+
+    val bubbleTextColor = if (message.isMine) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurface
     }
 
     Row(
@@ -720,7 +942,7 @@ fun MessageBubble(
                     text = message.sender,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = PrimaryBlue,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(
                         start = 4.dp,
                         bottom = 4.dp
@@ -729,11 +951,7 @@ fun MessageBubble(
             }
 
             Surface(
-                color = if (message.isMine) {
-                    OwnMessageColor
-                } else {
-                    OtherMessageColor
-                },
+                color = bubbleColor,
                 shape = RoundedCornerShape(
                     topStart = 16.dp,
                     topEnd = 16.dp,
@@ -750,11 +968,7 @@ fun MessageBubble(
                 ) {
                     Text(
                         text = message.text,
-                        color = if (message.isMine) {
-                            Color.White
-                        } else {
-                            DarkText
-                        },
+                        color = bubbleTextColor,
                         fontSize = 15.sp
                     )
 
@@ -763,13 +977,14 @@ fun MessageBubble(
                     Text(
                         text = time,
                         color = if (message.isMine) {
-                            Color(0xFFDCE4FF)
+                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
                         } else {
-                            SecondaryText
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         fontSize = 10.sp,
                         modifier = Modifier.align(Alignment.End)
                     )
+
                     Spacer(modifier = Modifier.height(9.dp))
 
                     Row(
@@ -780,7 +995,11 @@ fun MessageBubble(
                             text = "${remainingSeconds}s",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = timerColor
+                            color = if (remainingMs <= 10_000L) {
+                                timerColor
+                            } else {
+                                bubbleTextColor
+                            }
                         )
 
                         Spacer(modifier = Modifier.width(8.dp))
@@ -792,9 +1011,13 @@ fun MessageBubble(
                                 .height(4.dp),
                             color = timerColor,
                             trackColor = if (message.isMine) {
-                                Color(0xFF8298E8)
+                                MaterialTheme.colorScheme.onPrimary.copy(
+                                    alpha = 0.25f
+                                )
                             } else {
-                                Color(0xFFE4E8F0)
+                                MaterialTheme.colorScheme.outline.copy(
+                                    alpha = 0.45f
+                                )
                             }
                         )
                     }
@@ -806,7 +1029,7 @@ fun MessageBubble(
                 Text(
                     text = "Received by ${message.deliveredCount} connected apps",
                     fontSize = 10.sp,
-                    color = SecondaryText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
                         end = 4.dp,
                         top = 3.dp
@@ -828,7 +1051,7 @@ fun MessageInput(
     onSend: () -> Unit
 ) {
     Surface(
-        color = Color.White,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 8.dp
     ) {
         Row(
@@ -860,13 +1083,14 @@ fun MessageInput(
                 contentPadding = PaddingValues(0.dp),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = PrimaryBlue
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
                 Text(
                     text = "➤",
                     fontSize = 20.sp,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
